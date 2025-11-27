@@ -6,6 +6,8 @@ from typing import Dict, Any, Optional
 from src.config.settings import get_settings
 from src.utilities.logger import get_logger
 from src.error_trace.exceptions import AgentExecutionError
+import groq
+
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -18,24 +20,24 @@ class BaseAgent(ABC):
         self.name = name
         self.description = description
 
-        # Initialize Groq API client (active)
-        self.groq_api_key = settings.groq_api_key
-        logger.info(f"Groq API key loaded for {self.name}")
-
-        # Initialize OpenAI client only if the API key is provided (inactive by default)
+        # Initialize Groq API client
         self.client = None
-        if settings.openai_api_key:
+        if settings.groq_api_key:
             try:
-                from openai import AsyncOpenAI
-                self.client = AsyncOpenAI(api_key=settings.openai_api_key)
-                logger.info(f"OpenAI client initialized for {self.name}")
+                from groq import AsyncGroq
+                self.client = AsyncGroq(api_key=settings.groq_api_key)
+                logger.info(f"Groq client initialized for {self.name}")
             except ImportError:
-                logger.warning("OpenAI library not installed. OpenAI client not initialized.")
+                logger.error("Groq library not installed. Install with: pip install groq")
+                raise
+        else:
+            logger.error(f"Groq API key not found for {self.name}")
 
         # Model and temperature settings
-        self.model = settings.llm_model
+        # Use a Groq-compatible model if LLM_MODEL is None
+        self.model = settings.llm_model or "llama-3.3-70b-versatile"
         self.temperature = settings.agent_temperature
-        logger.info(f"Initialized {self.name}")
+        logger.info(f"Initialized {self.name} with model {self.model}")
 
     @abstractmethod
     async def analyze(
@@ -79,7 +81,7 @@ class BaseAgent(ABC):
         """
         if not self.client:
             raise AgentExecutionError(
-                message="OpenAI client is not initialized. Cannot execute LLM call.",
+                message="Groq client is not initialized. Cannot execute LLM call.",
                 details={"agent": self.name}
             )
 
@@ -99,7 +101,7 @@ class BaseAgent(ABC):
             logger.error(f"LLM execution error in {self.name}: {str(e)}")
             raise AgentExecutionError(
                 message=f"Failed to execute LLM call: {str(e)}",
-                details={"agent": self.name}
+                details={"agent": self.name, "error": str(e)}
             )
 
     def format_output(
@@ -126,4 +128,4 @@ class BaseAgent(ABC):
             "key_factors": key_factors,
             "detailed_analysis": analysis,
             "data_sources": analysis.get("data_sources", [])
-        } 
+        }
