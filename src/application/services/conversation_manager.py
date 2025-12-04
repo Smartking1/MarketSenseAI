@@ -7,9 +7,13 @@ from datetime import datetime, timedelta
 from src.domain.entities.conversation import (
     ConversationContext, ConversationSession, ConversationMessage, MessageRole
 )
-from src.infrastructure.cache import redis_client
+#from src.infrastructure.cache import redis_client
+
 from src.utilities.logger import get_logger
 import json
+
+from src.infrastructure.cache import get_cache
+redis_client = get_cache()
 
 logger = get_logger(__name__)
 

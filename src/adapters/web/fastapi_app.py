@@ -116,7 +116,7 @@ def create_app() -> FastAPI:
         logger.info("Shutting down Multi-Asset AI API...")
     
     # Include routers
-    from src.adapters.web.routes import router
+    from src.adapters.web.api_routes import router
     app.include_router(router, prefix="/api/v1")
     
     return app
