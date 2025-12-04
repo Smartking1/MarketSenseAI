@@ -1,0 +1,48 @@
+services:
+  - type: web
+    name: marketsense-ai-backend
+    env: python
+    plan: standard
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn src.adapters.web.fastapi_app:app --host 0.0.0.0 --port $PORT
+    
+    # Environment variables (set these in Render dashboard)
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: "false"
+      - key: DATABASE_URL
+        # Use Render's PostgreSQL addon (create in dashboard)
+        fromDatabase:
+          name: marketsense-db
+          property: connectionString
+      - key: REDIS_URL
+        # Use Render's Redis addon (create in dashboard)
+        fromCache:
+          name: marketsense-cache
+          property: connectionString
+      - key: GROQ_API_KEY
+        sync: false  # Set manually in Render dashboard
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: FRED_API_KEY
+        sync: false
+      - key: COINGECKO_API_KEY
+        sync: false
+      - key: NEWSAPI_KEY
+        sync: false
+      - key: LLM_MODEL
+        value: "gpt-4"
+
+  # PostgreSQL Database (optional - uncomment if using PostgreSQL)
+  # - type: pserv
+  #   name: marketsense-db
+  #   plan: starter
+  #   ipAllowList: []
+
+  # Redis Cache (optional - uncomment if using Redis)
+  # - type: redis
+  #   name: marketsense-cache
+  #   plan: starter
+  #   ipAllowList: []

@@ -1,23 +1,81 @@
-"""
-CoinGecko API Client
-"""
 from typing import Dict, Any, Optional, List
 import aiohttp
-from src.config.settings import get_settings
-from src.utilities.logger import get_logger
-from src.error_trace.exceptions import ExternalAPIError
+import os
+import sys
+try:
+    from src.config.settings import get_settings
+    from src.utilities.logger import get_logger
+    from src.error_trace.exceptions import ExternalAPIError
+except ModuleNotFoundError:
+    # Allow running this module directly (e.g. `python src/adapters/external/coingecko_client.py`)
+    # by adding the repository root (parent of `src`) to `sys.path` and retrying imports.
+    import sys
+    import os
+
+    _repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+    if _repo_root not in sys.path:
+        sys.path.insert(0, _repo_root)
+
+    from src.config.settings import get_settings
+    from src.utilities.logger import get_logger
+    from src.error_trace.exceptions import ExternalAPIError
 
 logger = get_logger(__name__)
-settings = get_settings()
+
+# Defer loading application Settings until the client is instantiated.
+# Also support loading a local `.env` file from the repository root so
+# running this module directly picks up keys stored there.
+settings = None
+
+
+def _load_dotenv_at_repo_root() -> None:
+    """Load `.env` from repository root into os.environ for missing keys.
+
+    This is deliberately minimal (no external dependency) and will not
+    overwrite existing environment variables.
+    """
+    try:
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+        dotenv_path = os.path.join(repo_root, ".env")
+        if not os.path.exists(dotenv_path):
+            return
+
+        with open(dotenv_path, "r", encoding="utf-8") as fh:
+            for raw in fh:
+                line = raw.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" not in line:
+                    continue
+                key, val = line.split("=", 1)
+                key = key.strip()
+                val = val.strip().strip('"').strip("'")
+                if key and key not in os.environ:
+                    os.environ[key] = val
+    except Exception:
+        # If anything goes wrong while reading .env, fail silently — the
+        # application environment may be managed externally.
+        return
 
 
 class CoinGeckoClient:
     """Client for CoinGecko API"""
     
-    BASE_URL = "https://api.coingecko.com/api/v3"
+    BASE_URL = "https://pro-api.coingecko.com/api/v3"
     
     def __init__(self, api_key: Optional[str] = None):
-        self.api_key = api_key or settings.coingecko_api_key
+        if api_key is not None:
+            self.api_key = api_key
+        else:
+            # Load .env (if present) then attempt to read settings
+            _load_dotenv_at_repo_root()
+            try:
+                self.api_key = get_settings().coingecko_api_key
+            except Exception:
+                # If settings validation fails or is unavailable, fall back
+                # to None — CoinGecko public endpoints still work without a key.
+                self.api_key = None
+
         self.session: Optional[aiohttp.ClientSession] = None
     
     async def __aenter__(self):
@@ -88,6 +146,206 @@ class CoinGeckoClient:
             Coin data including price, market cap, volume, etc.
         """
         endpoint = f"/coins/{coin_id}"
+        params = {
+            "localization": "false",
+            "tickers": "false",
+            "market_data": "true",
+            "community_data": "true",
+            "developer_data": "false"
+        }
+        return await self._request(endpoint, params)
+    
+    async def get_coin_history(
+        self,
+        coin_id: str,
+        date: str,
+        localization: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Get historical data (name, price, market, stats) at a given date
+        
+        Args:
+            coin_id: CoinGecko coin ID (e.g., 'bitcoin', 'ethereum')
+            date: Date in dd-mm-yyyy format (e.g., '30-12-2022')
+            localization: Include localized languages in response
+            
+        Returns:
+            Historical coin data for the specified date
+        """
+        endpoint = f"/coins/{coin_id}/history"
+        params = {
+            "date": date,
+            "localization": str(localization).lower()
+        }
+        return await self._request(endpoint, params)
+    
+    async def get_coin_market_chart_range(
+        self,
+        coin_id: str,
+        vs_currency: str = "usd",
+        from_timestamp: int = None,
+        to_timestamp: int = None
+    ) -> Dict[str, Any]:
+        """
+        Get historical market data within a date range
+        
+        Args:
+            coin_id: CoinGecko coin ID
+            vs_currency: Target currency (default: 'usd')
+            from_timestamp: Unix timestamp (seconds) for start date
+            to_timestamp: Unix timestamp (seconds) for end date
+            
+        Returns:
+            Historical price, market cap, and volume data for date range
+        """
+        endpoint = f"/coins/{coin_id}/market_chart/range"
+        params = {
+            "vs_currency": vs_currency,
+            "from": from_timestamp,
+            "to": to_timestamp
+        }
+        return await self._request(endpoint, params)
+    
+    async def get_coin_ohlc(
+        self,
+        coin_id: str,
+        vs_currency: str = "usd",
+        days: int = 7
+    ) -> List[List[float]]:
+        """
+        Get OHLC (Open, High, Low, Close) chart data
+        
+        Args:
+            coin_id: CoinGecko coin ID
+            vs_currency: Target currency (default: 'usd')
+            days: Number of days (1/7/14/30/90/180/365/max)
+            
+        Returns:
+            List of [timestamp, open, high, low, close] candles
+        """
+        endpoint = f"/coins/{coin_id}/ohlc"
+        params = {
+            "vs_currency": vs_currency,
+            "days": days
+            
+        }
+        return await self._request(endpoint, params)
+    
+    async def get_coin_tickers(
+        self,
+        coin_id: str,
+        exchange_ids: Optional[List[str]] = None,
+        include_exchange_logo: bool = False,
+        page: int = 1,
+        depth: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Get coin tickers (paginated to 100 items per page)
+        
+        Args:
+            coin_id: CoinGecko coin ID
+            exchange_ids: Filter by exchange IDs (optional)
+            include_exchange_logo: Include exchange logo URLs
+            page: Page number (default: 1)
+            depth: Include 2% orderbook depth (cost_to_move_up_usd, cost_to_move_down_usd)
+            
+        Returns:
+            Ticker data from various exchanges
+        """
+        endpoint = f"/coins/{coin_id}/tickers"
+        params = {
+            "include_exchange_logo": str(include_exchange_logo).lower(),
+            "page": page,
+            "depth": str(depth).lower()
+        }
+        
+        if exchange_ids:
+            params["exchange_ids"] = ",".join(exchange_ids)
+        
+        return await self._request(endpoint, params)
+    
+    async def get_coins_list(
+        self,
+        include_platform: bool = False
+    ) -> List[Dict[str, Any]]:
+        """
+        Get list of all supported coins with id, name, and symbol
+        
+        Args:
+            include_platform: Include platform contract addresses
+            
+        Returns:
+            List of all coins [{'id': 'bitcoin', 'symbol': 'btc', 'name': 'Bitcoin'}, ...]
+        """
+        endpoint = "/coins/list"
+        params = {
+            "include_platform": str(include_platform).lower()
+        }
+        return await self._request(endpoint, params)
+    
+    async def get_coins_markets(
+        self,
+        vs_currency: str = "usd",
+        coin_ids: Optional[List[str]] = None,
+        category: Optional[str] = None,
+        order: str = "market_cap_desc",
+        per_page: int = 100,
+        page: int = 1,
+        sparkline: bool = False,
+        price_change_percentage: Optional[List[str]] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Get current market data for multiple coins (paginated)
+        
+        Args:
+            vs_currency: Target currency
+            coin_ids: Filter by coin IDs (optional)
+            category: Filter by category (optional)
+            order: Sort order (market_cap_desc, volume_desc, id_asc, etc.)
+            per_page: Results per page (1-250, default: 100)
+            page: Page number
+            sparkline: Include sparkline 7d data
+            price_change_percentage: Include price change intervals (1h, 24h, 7d, 14d, 30d, 200d, 1y)
+            
+        Returns:
+            List of coin market data
+        """
+        endpoint = "/coins/markets"
+        params = {
+            "vs_currency": vs_currency,
+            "order": order,
+            "per_page": per_page,
+            "page": page,
+            "sparkline": str(sparkline).lower()
+        }
+        
+        if coin_ids:
+            params["ids"] = ",".join(coin_ids)
+        
+        if category:
+            params["category"] = category
+        
+        if price_change_percentage:
+            params["price_change_percentage"] = ",".join(price_change_percentage)
+        
+        return await self._request(endpoint, params)
+    
+    async def get_coin_by_contract(
+        self,
+        platform_id: str,
+        contract_address: str
+    ) -> Dict[str, Any]:
+        """
+        Get coin data by contract address
+        
+        Args:
+            platform_id: Platform ID (e.g., 'ethereum', 'binance-smart-chain')
+            contract_address: Token contract address
+            
+        Returns:
+            Coin data including price, market cap, volume, etc.
+        """
+        endpoint = f"/coins/{platform_id}/contract/{contract_address}"
         params = {
             "localization": "false",
             "tickers": "false",
@@ -187,3 +445,47 @@ class CoinGeckoClient:
             "UNI": "uniswap"
         }
         return mapping.get(symbol.upper(), symbol.lower())
+
+
+if __name__ == "__main__":
+    """
+    Example usage:
+
+    This small example demonstrates how to instantiate the async
+    `CoinGeckoClient`, fetch simple prices for Bitcoin and Ethereum,
+    and print a small global snapshot. Run the file directly to try it:
+
+        python -m src.adapters.external.coingecko_client
+
+    Note: the project typically runs these clients inside an async
+    runtime (e.g. an application worker). This example is intentionally
+    minimal and meant for local experimentation.
+    """
+
+    import asyncio
+
+    async def _example():
+        async with CoinGeckoClient() as client:
+            # Get simple price for bitcoin and ethereum in USD
+            prices = await client.get_simple_price(["bitcoin", "ethereum"], vs_currencies=["usd"])
+            print("Simple prices:", prices)
+
+            # Get a small global snapshot
+            global_data = await client.get_global_data()
+            print("Global market data (summary):", global_data.get("data") if isinstance(global_data, dict) else global_data)
+            
+            # Get historical data for Bitcoin on a specific date
+            history = await client.get_coin_history("bitcoin", "30-12-2022")
+            print("\nBitcoin history (30-12-2022):", history.get("name"), history.get("market_data", {}).get("current_price"))
+            
+            # Get OHLC data for Ethereum (7 days)
+            ohlc = await client.get_coin_ohlc("ethereum", days=7)
+            print(f"\nEthereum OHLC data points: {len(ohlc)}")
+            
+            # Get top 10 coins by market cap
+            markets = await client.get_coins_markets(per_page=10, page=1)
+            print("\nTop 10 coins by market cap:")
+            for coin in markets[:5]:  # Print first 5
+                print(f"  {coin['name']}: ${coin['current_price']:,.2f}")
+
+    asyncio.run(_example())

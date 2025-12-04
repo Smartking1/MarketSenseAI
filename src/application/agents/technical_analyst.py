@@ -2,13 +2,12 @@
 Technical Analyst Agent - Analyzes price action and technical indicators
 """
 import json
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from src.application.agents.base_agent import BaseAgent
 from src.application.services.rag_service import RAGService
 from src.application.services.tts_service import TTSService
 from src.application.services.speech_service import SpeechService
 from src.application.services.translation_service import TranslationService
-from src.adapters.external.binance_client import BinanceClient
 from src.adapters.external.coingecko_client import CoinGeckoClient 
 from src.utilities.logger import get_logger 
 import pandas as pd
@@ -78,6 +77,9 @@ Provide analysis in JSON format with:
             query_in_english = self.translation_service.translate_text(query, src=user_language, dest="en")
             
             asset_symbol = context.get("asset_symbol", "BTC") if context else "BTC"
+            include_historical = context.get("include_historical", False) if context else False
+            specific_date = context.get("specific_date") if context else None
+            
             logger.info(f"Technical Analyst analyzing: {asset_symbol}")
             
             # Retrieve context using RAGService
@@ -87,7 +89,12 @@ Provide analysis in JSON format with:
             # Collect price data and calculate indicators
             technical_data = await self._collect_technical_data(asset_symbol)
             
-            # Format prompt
+            # Get historical data for specific date if requested
+            historical_context = {}
+            if specific_date:
+                historical_context = await self._get_historical_context(asset_symbol, specific_date)
+            
+            # Format prompt with enhanced data
             user_prompt = f"""Analyze technical indicators for {asset_symbol}: {query_in_english}
 
 Technical Data:
@@ -96,7 +103,14 @@ Technical Data:
 Retrieved Context:
 {json.dumps(documents, indent=2)}
 
-Provide comprehensive technical analysis with specific price levels."""
+{f"Historical Context ({specific_date}):" + json.dumps(historical_context, indent=2) if historical_context else ""}
+
+Provide comprehensive technical analysis with specific price levels, considering:
+- Multi-timeframe trends (1h, 24h, 7d, 14d, 30d)
+- Liquidity metrics and orderbook depth
+- Volume analysis across top exchanges
+- Technical indicator confluence
+"""
             
             # Execute LLM call
             response = await self.execute_llm_call(
@@ -113,6 +127,16 @@ Provide comprehensive technical analysis with specific price levels."""
                     "confidence": 0.6,
                     "key_factors": []
                 }
+            
+            # Add raw technical data to response
+            analysis["raw_technical_data"] = {
+                "current_price": technical_data.get("current_price"),
+                "price_changes": technical_data.get("price_changes", {}),
+                "liquidity_metrics": technical_data.get("liquidity_metrics", {}),
+                "technical_indicators": technical_data.get("technical_indicators", {}),
+                "data_source": technical_data.get("source"),
+                "data_type": technical_data.get("data_type")
+            }
             
             # Translate response back to user's language
             translated_response = self.translation_service.translate_text(
@@ -140,55 +164,105 @@ Provide comprehensive technical analysis with specific price levels."""
             }
     
     async def _collect_technical_data(self, symbol: str) -> Dict[str, Any]:
-        """Collect and calculate technical indicators with fallback to CoinGecko"""
+        """Collect and calculate technical indicators using CoinGecko"""
         try:
-            # Try Binance first
-            return await self._get_binance_data(symbol)
-        except Exception as binance_error:
-            logger.warning(f"Binance data collection failed: {str(binance_error)}, falling back to CoinGecko")
-            try:
-                return await self._get_coingecko_data(symbol)
-            except Exception as coingecko_error:
-                logger.error(f"CoinGecko data collection also failed: {str(coingecko_error)}")
-                return {}
+            return await self._get_coingecko_data(symbol)
+        except Exception as error:
+            logger.error(f"CoinGecko data collection failed: {str(error)}")
+            return {}
     
-    async def _get_binance_data(self, symbol: str) -> Dict[str, Any]:
-        """Get data from Binance and calculate indicators"""
-        async with BinanceClient() as binance:
-            ticker = await binance.get_24h_ticker(f"{symbol}USDT")
-            klines = await binance.get_klines(f"{symbol}USDT", interval="1d", limit=200)
+    async def _get_historical_context(self, symbol: str, date: str) -> Dict[str, Any]:
+        """
+        Get historical data for a specific date
         
-        # Convert to DataFrame
-        df = pd.DataFrame(klines, columns=[
-            'timestamp', 'open', 'high', 'low', 'close', 'volume',
-            'close_time', 'quote_volume', 'trades', 'taker_buy_base',
-            'taker_buy_quote', 'ignore'
-        ])
+        Args:
+            symbol: Crypto symbol (e.g., BTC, ETH)
+            date: Date in dd-mm-yyyy format (e.g., '30-12-2022')
+            
+        Returns:
+            Historical data for comparison
+        """
+        try:
+            async with CoinGeckoClient() as coingecko:
+                coin_id = coingecko.normalize_symbol(symbol)
+                history = await coingecko.get_coin_history(coin_id, date)
+                
+                market_data = history.get('market_data', {})
+                return {
+                    "date": date,
+                    "price": market_data.get('current_price', {}).get('usd', 0),
+                    "market_cap": market_data.get('market_cap', {}).get('usd', 0),
+                    "total_volume": market_data.get('total_volume', {}).get('usd', 0),
+                    "available": True
+                }
+        except Exception as e:
+            logger.error(f"Failed to get historical context for {date}: {str(e)}")
+            return {"available": False, "error": str(e)}
+    
+    def _analyze_liquidity(self, tickers: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Analyze liquidity metrics from ticker data"""
+        if not tickers:
+            return {
+                "available": False,
+                "note": "Liquidity data unavailable"
+            }
         
-        # Convert to numeric
-        for col in ['open', 'high', 'low', 'close', 'volume']:
-            df[col] = pd.to_numeric(df[col])
-        
-        # Calculate indicators
-        indicators = self._calculate_indicators(df)
-        
-        current_price = float(ticker['lastPrice'])
-        
-        return {
-            "source": "binance",
-            "current_price": current_price,
-            "24h_change": float(ticker['priceChangePercent']),
-            "24h_volume": float(ticker['volume']),
-            "24h_high": float(ticker['highPrice']),
-            "24h_low": float(ticker['lowPrice']),
-            "technical_indicators": indicators
-        }
+        try:
+            # Extract key liquidity metrics
+            total_volume = sum(float(t.get('converted_volume', {}).get('usd', 0)) for t in tickers[:10])
+            
+            # Orderbook depth analysis (2% depth)
+            depth_data = [t for t in tickers if 'cost_to_move_up_usd' in t and 'cost_to_move_down_usd' in t]
+            
+            if depth_data:
+                avg_cost_up = sum(float(t.get('cost_to_move_up_usd', 0)) for t in depth_data) / len(depth_data)
+                avg_cost_down = sum(float(t.get('cost_to_move_down_usd', 0)) for t in depth_data) / len(depth_data)
+                
+                # Calculate bid-ask spread for top exchanges
+                spreads = []
+                for t in tickers[:5]:
+                    bid = float(t.get('bid_ask_spread_percentage', 0))
+                    if bid > 0:
+                        spreads.append(bid)
+                
+                avg_spread = sum(spreads) / len(spreads) if spreads else 0
+                
+                return {
+                    "available": True,
+                    "top_10_exchanges_volume": round(total_volume, 2),
+                    "avg_cost_to_move_up_2pct": round(avg_cost_up, 2),
+                    "avg_cost_to_move_down_2pct": round(avg_cost_down, 2),
+                    "avg_bid_ask_spread_pct": round(avg_spread, 4),
+                    "liquidity_score": "high" if avg_spread < 0.1 else "medium" if avg_spread < 0.5 else "low",
+                    "exchanges_analyzed": len(depth_data)
+                }
+            else:
+                return {
+                    "available": True,
+                    "top_10_exchanges_volume": round(total_volume, 2),
+                    "note": "Orderbook depth data unavailable"
+                }
+                
+        except Exception as e:
+            logger.error(f"Error analyzing liquidity: {str(e)}")
+            return {
+                "available": False,
+                "error": str(e)
+            }
     
     async def _get_coingecko_data(self, symbol: str) -> Dict[str, Any]:
-        """Get data from CoinGecko and calculate indicators"""
+        """Get data from CoinGecko and calculate indicators with enhanced market data"""
         async with CoinGeckoClient() as coingecko:
             # Convert symbol to CoinGecko ID
             coin_id = coingecko.normalize_symbol(symbol)
+            
+            # Get enhanced market data with multiple timeframes
+            markets_data = await coingecko.get_coins_markets(
+                coin_ids=[coin_id],
+                vs_currency="usd",
+                sparkline=True,
+                price_change_percentage=["1h", "24h", "7d", "14d", "30d"]
+            )
             
             # Get current price and 24h data
             simple_price = await coingecko.get_simple_price(
@@ -198,31 +272,59 @@ Provide comprehensive technical analysis with specific price levels."""
                 include_24h_volume=True
             )
             
-            # Get historical data for technical indicators
-            market_chart = await coingecko.get_market_chart(
-                coin_id=coin_id,
-                vs_currency="usd",
-                days=200
-            )
+            # Get OHLC data for accurate technical indicators (up to 365 days)
+            try:
+                ohlc_data = await coingecko.get_coin_ohlc(
+                    coin_id=coin_id,
+                    vs_currency="usd",
+                    days= '7'
+                )
+                use_ohlc = True
+                logger.info(f"Retrieved {len(ohlc_data)} OHLC candles for {symbol}")
+            except Exception as e:
+                logger.warning(f"OHLC data unavailable, falling back to market_chart: {str(e)}")
+                use_ohlc = False
+                # Fallback to market_chart for closing prices
+                market_chart = await coingecko.get_market_chart(
+                    coin_id=coin_id,
+                    vs_currency="usd",
+                    days=200
+                )
             
             # Get comprehensive coin data
             coin_data = await coingecko.get_coin_data(coin_id)
+            
+            # Get top tickers with orderbook depth for liquidity analysis
+            try:
+                tickers_data = await coingecko.get_coin_tickers(
+                    coin_id=coin_id,
+                    depth=True,
+                    page=1
+                )
+                logger.info(f"Retrieved {len(tickers_data.get('tickers', []))} tickers for {symbol}")
+            except Exception as e:
+                logger.warning(f"Tickers data unavailable: {str(e)}")
+                tickers_data = {"tickers": []}
         
-        # Extract price data
-        prices = market_chart.get('prices', [])
-        if not prices:
-            raise ValueError("No price data available from CoinGecko")
-        
-        # Convert to DataFrame
-        df = pd.DataFrame(prices, columns=['timestamp', 'close'])
-        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-        
-        # For more accurate indicators, we need OHLC data
-        # CoinGecko's market_chart only provides closing prices
-        # We'll approximate high/low using rolling windows
-        df['high'] = df['close'].rolling(window=24, min_periods=1).max()
-        df['low'] = df['close'].rolling(window=24, min_periods=1).min()
-        df['open'] = df['close'].shift(1).fillna(df['close'])
+        # Convert to DataFrame based on data type
+        if use_ohlc:
+            # OHLC format: [timestamp, open, high, low, close]
+            df = pd.DataFrame(ohlc_data, columns=['timestamp', 'open', 'high', 'low', 'close'])
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        else:
+            # Market chart fallback - extract price data
+            prices = market_chart.get('prices', [])
+            if not prices:
+                raise ValueError("No price data available from CoinGecko")
+            
+            # Convert to DataFrame
+            df = pd.DataFrame(prices, columns=['timestamp', 'close'])
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+            
+            # Approximate OHLC from closing prices using rolling windows
+            df['high'] = df['close'].rolling(window=24, min_periods=1).max()
+            df['low'] = df['close'].rolling(window=24, min_periods=1).min()
+            df['open'] = df['close'].shift(1).fillna(df['close'])
         
         # Calculate indicators
         indicators = self._calculate_indicators(df)
@@ -238,16 +340,40 @@ Provide comprehensive technical analysis with specific price levels."""
         high_24h = market_data.get('high_24h', {}).get('usd', current_price)
         low_24h = market_data.get('low_24h', {}).get('usd', current_price)
         
+        # Extract multi-timeframe price changes from markets data
+        price_changes = {}
+        if markets_data and len(markets_data) > 0:
+            market_info = markets_data[0]
+            price_changes = {
+                "1h": market_info.get('price_change_percentage_1h_in_currency'),
+                "24h": market_info.get('price_change_percentage_24h_in_currency'),
+                "7d": market_info.get('price_change_percentage_7d_in_currency'),
+                "14d": market_info.get('price_change_percentage_14d_in_currency'),
+                "30d": market_info.get('price_change_percentage_30d_in_currency')
+            }
+            # Get sparkline data (7-day mini chart)
+            sparkline = market_info.get('sparkline_in_7d', {}).get('price', [])
+        else:
+            sparkline = []
+        
+        # Analyze liquidity from tickers data
+        liquidity_analysis = self._analyze_liquidity(tickers_data.get('tickers', []))
+        
         return {
             "source": "coingecko",
+            "data_type": "ohlc" if use_ohlc else "closing_prices",
             "current_price": current_price,
             "24h_change": price_change_24h,
             "24h_volume": volume_24h,
             "24h_high": high_24h,
             "24h_low": low_24h,
             "market_cap": coin_price_data.get('usd_market_cap', 0),
+            "price_changes": price_changes,
+            "sparkline_7d": sparkline[:10] if sparkline else [],  # First 10 points as sample
             "technical_indicators": indicators,
-            "note": "Technical indicators calculated from daily closing prices (CoinGecko limitation)"
+            "liquidity_metrics": liquidity_analysis,
+            "data_points": len(df),
+            "note": "Technical indicators calculated from OHLC data" if use_ohlc else "Technical indicators calculated from daily closing prices (CoinGecko limitation)"
         }
     
     def _calculate_indicators(self, df: pd.DataFrame) -> Dict[str, float]:
@@ -286,3 +412,47 @@ Provide comprehensive technical analysis with specific price levels."""
         except Exception as e:
             logger.error(f"Error calculating indicators: {str(e)}")
             return {}
+
+
+# Example usage for testing
+async def main():
+    """Simple example to test the Technical Analyst agent"""
+    print("=" * 60)
+    print("Testing Technical Analyst Agent (CoinGecko Only)")
+    print("=" * 60)
+    
+    # Initialize the agent
+    analyst = TechnicalAnalyst()
+    
+    # Test query
+    query = "What is the current technical outlook for Bitcoin?"
+    
+    # Context with asset symbol and additional features
+    context = {
+        "asset_symbol": "BTC",
+        "language": "en",
+        "audio_output": False,
+        "include_historical": True,
+        "specific_date": "01-12-2024"  # Optional: compare with specific historical date
+    }
+    
+    print(f"\nQuery: {query}")
+    print(f"Asset: {context['asset_symbol']}")
+    print("\nAnalyzing...\n")
+    
+    # Perform analysis
+    result = await analyst.analyze(query=query, context=context)
+    
+    # Display results
+    print("=" * 60)
+    print("ANALYSIS RESULTS")
+    print("=" * 60)
+    print(json.dumps(result, indent=2))
+    print("\n" + "=" * 60)
+
+
+if __name__ == "__main__":
+    import asyncio
+    
+    # Run the example
+    asyncio.run(main())
