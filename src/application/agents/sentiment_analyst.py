@@ -157,7 +157,11 @@ class SentimentAnalyst(BaseAgent):
             logger.warning(f"Translation failed: {str(e)}, using original query")
             return query
     
+<<<<<<< Updated upstream
     async def analyze(self, query: str, context: Optional[Dict] = None) -> Dict[str, Any]:
+=======
+    async def analyze(self, query: str, context: Optional[Dict] = None) -> SentimentAnalysis:
+>>>>>>> Stashed changes
         """
         Analyze sentiment for a given cryptocurrency
         

@@ -200,6 +200,17 @@ Provide synthesis in JSON format:
             
             logger.info(f"Agent results - Macro: {type(macro_result)}, Technical: {type(technical_result)}, Sentiment: {type(sentiment_result)}")
             
+            # Convert SentimentAnalysis to dict immediately
+            if hasattr(sentiment_result, 'to_dict') and not isinstance(sentiment_result, dict):
+                sentiment_result = sentiment_result.to_dict()
+            
+            # Also convert macro and technical results to dicts if they have to_dict method
+            if hasattr(macro_result, 'to_dict') and not isinstance(macro_result, dict):
+                macro_result = macro_result.to_dict()
+                
+            if hasattr(technical_result, 'to_dict') and not isinstance(technical_result, dict):
+                technical_result = technical_result.to_dict()
+            
             # Synthesize results
             synthesis = await self._synthesize_results(
                 query_in_english,
