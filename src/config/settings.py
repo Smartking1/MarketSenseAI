@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     # Agent Settings
     max_agent_iterations: int = Field(default=5, env="MAX_AGENT_ITERATIONS")
     agent_temperature: float = Field(default=0.7, env="AGENT_TEMPERATURE")
-    llm_model: str = Field(default=None, env="LLM_MODEL")
+    llm_model: Optional[str] = Field(default=None, env="LLM_MODEL")
     
     # Data Collection Settings
     data_update_interval: int = Field(default=3600, env="DATA_UPDATE_INTERVAL")

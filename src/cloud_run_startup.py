@@ -50,6 +50,7 @@ try:
     import uvicorn
     
     logger.info("Starting FastAPI application...")
+    logger.info(f"Python path: {sys.path[:3]}")
     
     uvicorn.run(
         "src.adapters.web.fastapi_app:app",
@@ -57,6 +58,12 @@ try:
         port=int(os.environ.get('PORT', 8080)),
         log_level="info"
     )
+except ImportError as e:
+    logger.error(f"Import error - failed to load modules: {str(e)}", exc_info=True)
+    sys.exit(1)
+except ValueError as e:
+    logger.error(f"Validation error - check environment variables: {str(e)}", exc_info=True)
+    sys.exit(1)
 except Exception as e:
     logger.error(f"Failed to start application: {str(e)}", exc_info=True)
     sys.exit(1)
