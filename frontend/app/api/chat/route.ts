@@ -1,5 +1,5 @@
 import { google } from "@ai-sdk/google";
-import { streamText, UIMessage } from "ai";
+import { streamText } from "ai";
 
 export const runtime = "edge";
 
