@@ -15,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "MarketSenseAI",
-  description: "Multi-agent AI system for Forex & Crypto market analysis",
+  title: "MarketSenseAI - Financial Market Intelligence",
+  description: "AI-powered financial analysis for cryptocurrency, forex, and stocks market insights and investment recommendations",
 };
 
 export default function RootLayout({
