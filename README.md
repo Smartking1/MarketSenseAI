@@ -29,62 +29,69 @@ git clone <repository-url>
 cd multi-asset-ai
 ```
 
-### 2. Install Dependencies
+### 2. Install Backend Dependencies (venv + uv)
 
-Using Poetry (recommended):
+Create a project-local virtual environment and install Python dependencies with uv:
+
+```powershell
+# create venv (Windows PowerShell)
+python -m venv .venv
+
+# activate (PowerShell)
+source .\.venv\Scripts\Activate
+
+# or (Command Prompt)
+# .venv\Scripts\activate.bat
+
+# Install / sync dependencies from requirements.txt using uv (recommended)
+uv pip sync requirements.txt
+
+# Alternative: install without removing extras
+# uv pip install -r requirements.txt
+```
+
+> Note: uv keeps the environment in sync with the requirements file. Make sure `.venv` is activated before running uv commands.
+
+### 3. Start the Backend (development)
+
+With the virtual environment activated run:
+
 ```bash
-poetry install
-poetry shell
+python -m src.entry_scripts.start_api
 ```
 
-Or using pip:
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\\Scripts\\activate
-pip install -r requirements.txt
+This starts the FastAPI server (default: http://localhost:8000). Use CTRL+C to stop.
+
+### 4. Run the Frontend (Next.js)
+
+The frontend lives in the `frontend/` directory and is a Next.js app.
+
+```powershell
+# from project root
+cd frontend
+
+# install dependencies (use pnpm, npm or yarn depending on your setup)
+pnpm install
+# or
+npm install
+
+# set local env (example)
+# create a .env.local file in frontend/ or set environment variables in your shell:
+# NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+
+# run dev server (Windows)
+npm run dev
+# or with pnpm
+pnpm dev
 ```
 
-### 3. Configure Environment
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env` and add your API keys:
-```env
-OPENAI_API_KEY=your_openai_key
-FRED_API_KEY=your_fred_key
-NEWSAPI_KEY=your_newsapi_key
-BINANCE_API_KEY=your_binance_key
-```
-
-### 4. Start Services
-
-Using Docker:
-```bash
-docker-compose up -d
-```
-
-Or manually:
-```bash
-# Terminal 1: Start PostgreSQL
-docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=password postgres:15
-
-# Terminal 2: Start Redis
-docker run -d -p 6379:6379 redis:7-alpine
-
-# Terminal 3: Start API
-poetry run start-api
-
-# Terminal 4: Start Worker
-poetry run start-worker
-```
+Open: http://localhost:3000
 
 ### 5. Access the Application
 
-- **API**: http://localhost:8000
-- **API Docs**: http://localhost:8000/docs
-- **Frontend**: Open `frontend/index.html` in browser
+- API: http://localhost:8000
+- API Docs: http://localhost:8000/docs
+- Frontend: http://localhost:3000
 
 ## 📁 Project Structure
 

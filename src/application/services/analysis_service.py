@@ -49,7 +49,7 @@ class AnalysisService:
             
             if cached:
                 logger.info(f"Cache hit for analysis: {asset_symbol}")
-                return Analysis.from_dict(cached) if isinstance(cached, dict) else cached
+                return Analysis.to_dict(cached) if isinstance(cached, dict) else cached
             
             # Prepare base context
             analysis_context = {
