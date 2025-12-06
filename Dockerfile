@@ -33,6 +33,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8080/ || exit 1
 
-# Run FastAPI application with uvicorn
-# Cloud Run expects the app to listen on PORT environment variable
-CMD exec uvicorn src.adapters.web.fastapi_app:app --host 0.0.0.0 --port ${PORT:-8080}
+# Run through startup wrapper that handles environment setup
+CMD exec python src/cloud_run_startup.py

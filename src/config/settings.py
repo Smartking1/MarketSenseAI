@@ -8,18 +8,18 @@ from functools import lru_cache
 class Settings(BaseSettings):
     """Application settings loaded from environment variables"""
     
-    # API Keys
+    # API Keys (with defaults to handle Cloud Run environment)
     openai_api_key: str = Field(default="", env="OPENAI_API_KEY")
-    groq_api_key: str = Field(..., env="GROQ_API_KEY")
+    groq_api_key: str = Field(default="", env="GROQ_API_KEY")
     gemini_api_key: str = Field(default="", env="GEMINI_API_KEY")
     claude_api_key: str = Field(default="", env="CLAUDE_API_KEY")
-    fred_api_key: str = Field(..., env="FRED_API_KEY")
-    newsapi_key: str = Field(..., env="NEWSAPI_KEY")
-    coingecko_api_key: str = Field(..., env="COINGECKO_API_KEY")
+    fred_api_key: str = Field(default="", env="FRED_API_KEY")
+    newsapi_key: str = Field(default="", env="NEWSAPI_KEY")
+    coingecko_api_key: str = Field(default="", env="COINGECKO_API_KEY")
     binance_api_key: str = Field(default="", env="BINANCE_API_KEY")
     binance_api_secret: str = Field(default="", env="BINANCE_API_SECRET")
-    serper_api_key: str = Field(..., env="SERPER_API_KEY")  
-    serpapi_key: str = Field(..., env="SERPAPI_KEY")  
+    serper_api_key: str = Field(default="", env="SERPER_API_KEY")  
+    serpapi_key: str = Field(default="", env="SERPAPI_KEY")  
     
     # Database
     database_url: str = Field(default="sqlite:///./multiasset.db", env="DATABASE_URL")
@@ -31,14 +31,14 @@ class Settings(BaseSettings):
     
     # API Settings
     api_host: str = Field(default="0.0.0.0", env="API_HOST")
-    api_port: int = Field(default=8000, env="API_PORT")
-    debug: bool = Field(default=True, env="DEBUG")
-    environment: str = Field(default="development", env="ENVIRONMENT")
+    api_port: int = Field(default=8080, env="PORT")  # Cloud Run uses PORT env var
+    debug: bool = Field(default=False, env="DEBUG")
+    environment: str = Field(default="production", env="ENVIRONMENT")
     
     # Agent Settings
     max_agent_iterations: int = Field(default=5, env="MAX_AGENT_ITERATIONS")
     agent_temperature: float = Field(default=0.7, env="AGENT_TEMPERATURE")
-    llm_model: str = Field(default=None, env="LLM_MODEL")
+    llm_model: Optional[str] = Field(default=None, env="LLM_MODEL")
     
     # Data Collection Settings
     data_update_interval: int = Field(default=3600, env="DATA_UPDATE_INTERVAL")
