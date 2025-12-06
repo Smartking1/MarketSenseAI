@@ -1,44 +1,50 @@
 # Multi-stage build for Next.js frontend
-FROM node:18-alpine AS builder
-
+FROM node:20-alpine AS deps
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
-COPY pnpm-lock.yaml* ./
+# Install dependencies based on the preferred package manager
+COPY package.json pnpm-lock.yaml* ./
+RUN npm install -g pnpm && pnpm install --frozen-lockfile
 
-# Install dependencies
-RUN npm install -g pnpm
-RUN pnpm install --frozen-lockfile
+# Builder stage
+FROM node:20-alpine AS builder
+WORKDIR /app
 
-# Copy source code
+# Copy dependencies
+COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
+# Set environment variable for standalone build
+ENV NEXT_TELEMETRY_DISABLED=1
+
 # Build Next.js app
-RUN pnpm run build
+RUN npm install -g pnpm && pnpm run build
 
 # Production stage
-FROM node:18-alpine
-
+FROM node:20-alpine AS runner
 WORKDIR /app
 
-# Install only production dependencies
-COPY package*.json ./
-COPY pnpm-lock.yaml* ./
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
 
-RUN npm install -g pnpm
-RUN pnpm install --prod --frozen-lockfile
+# Create non-root user for security
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
 
-# Copy built app from builder
-COPY --from=builder /app/.next ./.next
+# Copy necessary files from builder
 COPY --from=builder /app/public ./public
+
+# Copy standalone output (optimized for production)
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+USER nextjs
 
 # Expose port for Cloud Run
 EXPOSE 3000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD node -e "require('http').get('http://localhost:3000/', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
 
-# Start Next.js server
-CMD ["pnpm", "start"]
+# Start Next.js server using standalone mode
+CMD ["node", "server.js"]
