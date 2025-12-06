@@ -19,7 +19,9 @@ settings = get_settings()
 setup_logging()
 
 
+# Response models
 class HealthResponse(BaseModel):
+    """Health check response model"""
     status: str
     service: str
 
@@ -124,8 +126,8 @@ def create_app() -> FastAPI:
     @app.get("/", response_model=HealthResponse)
     async def root_health():
         """Root health check - Cloud Run calls this endpoint"""
-        return {"status": "healthy", "service": "MarketSenseAI"}
-
+        return HealthResponse(status="healthy", service="MarketSenseAI")
+    
     # Include routers
     from src.adapters.web.api_routes import router
     from src.adapters.web.routes.langchain_memory_routes import (
@@ -138,5 +140,18 @@ def create_app() -> FastAPI:
     return app
 
 
-# Create app instance
-app = create_app()
+# Create app instance lazily to avoid import-time errors
+try:
+    app = create_app()
+except Exception as e:
+    logger.error(f"Failed to create app: {str(e)}", exc_info=True)
+    # Create a minimal app for health checks
+    app = FastAPI(title="Multi-Asset AI", version="0.1.0")
+    
+    class HealthResponse(BaseModel):
+        status: str
+        service: str
+    
+    @app.get("/", response_model=HealthResponse)
+    async def fallback_health():
+        return HealthResponse(status="error", service="MarketSenseAI")
