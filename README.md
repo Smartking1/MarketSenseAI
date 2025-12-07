@@ -11,9 +11,8 @@ The diagram above illustrates the complete system architecture, showing how data
 ## 🌟 Key Features
 
 - **Multi-Agent Architecture**: Coordinated specialist agents (Macro, Technical, Sentiment, Synthesis) working together
-- **RAG-Powered Analysis**: Context-aware insights using ChromaDB vector store
+- **RAG-Powered Analysis**(Optional): Context-aware insights using ChromaDB vector store
 - **Real-time Market Data**: Integration with Binance, CoinGecko, FRED, Reddit, and news APIs
-- **Conversational Memory**: Maintains context across the last 5 conversations per user
 - **Interactive Frontend**: Next.js web interface with conversation history sidebar
 - **Clean Architecture**: Domain-Driven Design with proper separation of concerns
 - **Production-Ready**: PostgreSQL database, Redis caching, comprehensive error handling
@@ -193,7 +192,7 @@ multi-asset-ai/
 │   ├── components/                # React components
 │   │   ├── ai-elements/           # AI chat UI components
 │   │   ├── ui/                    # shadcn/ui components
-│   │   └── sidebar.tsx            # Conversation history sidebar
+│   │   └── sidebar.tsx            # Conversation history sidebar(for future integrations)
 │   └── lib/                       # Utility functions
 ├── tests/                         # Unit and integration tests
 ├── docs/                          # Documentation
@@ -251,25 +250,7 @@ Content-Type: application/json
 GET /api/v1/analyze/BTC?timeframe=medium
 ```
 
-### Conversation Management Endpoints
 
-#### Get User Conversations
-```bash
-GET /api/v1/conversations/user/{user_id}
-```
-
-#### Get Conversation History
-```bash
-GET /api/v1/conversations/sessions/{session_id}/conversations/{conversation_id}
-```
-
-#### Create Session
-```bash
-POST /api/v1/conversations/sessions
-{
-  "user_id": "user-uuid"
-}
-```
 
 ### Market Data Endpoints
 
@@ -331,7 +312,7 @@ The system uses four specialized AI agents that work together to provide compreh
 
 ### RAG (Retrieval-Augmented Generation)(Was Optional)
 
-The system uses ChromaDB for vector storage and retrieval:
+The system uses ChromaDB(optional) for vector storage and retrieval:
 
 - **Collections**:
   - `macro_data`: Economic indicators and policy data
@@ -340,12 +321,7 @@ The system uses ChromaDB for vector storage and retrieval:
 - **Embedding Model**: `all-MiniLM-L6-v2` (SentenceTransformers)
 - **Purpose**: Provides context-aware analysis by retrieving relevant historical data
 
-### Conversational Memory
 
-- **Implementation**: LangChain `ConversationBufferWindowMemory`
-- **Window Size**: Last 5 conversations per user
-- **Storage**: In-memory with Redis caching
-- **Purpose**: Maintains context across multiple queries in a session
 
 ## 🎯 Usage Examples
 
@@ -558,11 +534,10 @@ MAX_AGENT_ITERATIONS=5
 |---------|---------------|----------------------|-----------------|-----------------|
 | **Multi-Agent Analysis** | ✅ 4 specialist agents | ❌ Single perspective | ⚠️ 1 generalist AI | ❌ Manual only |
 | **Real-time Data** | ✅ Multiple sources | ✅ Limited sources | ⚠️ Varies | ❌ Time-consuming |
-| **Conversational Memory** | ✅ Last 5 conversations | ❌ No context | ⚠️ Basic | ✅ Human memory |
 | **Risk Assessment** | ✅ Comprehensive scoring | ⚠️ Basic metrics | ⚠️ Generic | ✅ Subjective |
 | **Customization** | ✅ Open-source | ❌ Proprietary | ❌ Closed | ✅ Fully custom |
 | **Cost** | 💰 API costs only | 💰💰💰 Subscription fees | 💰💰 Monthly fees | 💰 Time investment |
-| **Technical Analysis** | ✅ Advanced indicators | ✅ Professional tools | ⚠️ Basic | ⚠️ Manual charts |
+| **Technical Analysis** | ✅ good indicators | ✅ Professional tools | ⚠️ Basic | ⚠️ Manual charts |
 | **Sentiment Analysis** | ✅ News + Social media | ⚠️ News only | ⚠️ Limited | ❌ Manual reading |
 | **Macro Analysis** | ✅ Economic indicators | ⚠️ Basic | ❌ Not included | ✅ Research required |
 | **Speed** | ⚡ 8-12 seconds | ⚡ Instant (limited) | ⚡ 5-10 seconds | 🐌 Hours/Days |
@@ -595,7 +570,7 @@ A: Data freshness varies by source:
 - Social media: Hourly aggregation
 
 **Q: Is my data private and secure?**  
-A: Yes. All data is stored locally in your database. Conversation history is only accessible to you. API calls to external services (Groq, CoinGecko) follow their respective privacy policies.
+A: Yes. All data is stored locally in your database.  API calls to external services (Groq, CoinGecko) follow their respective privacy policies.
 
 ### Technical Questions
 
@@ -799,6 +774,34 @@ mypy src/
 - **API Reference**: http://localhost:8000/docs (when running)
 - **Agent Development**: See agent source files for examples
 
+## Future Directions 
+### Conversation Management Endpoints
+
+#### Get User Conversations
+```bash
+GET /api/v1/conversations/user/{user_id}
+```
+
+#### Get Conversation History
+```bash
+GET /api/v1/conversations/sessions/{session_id}/conversations/{conversation_id}
+```
+
+#### Create Session
+```bash
+POST /api/v1/conversations/sessions
+{
+  "user_id": "user-uuid"
+}
+```
+
+#### Conversational Memory
+
+- **Implementation**: LangChain `ConversationBufferWindowMemory`
+- **Window Size**: Last 5 conversations per user
+- **Storage**: In-memory with Redis caching
+- **Purpose**: Maintains context across multiple queries in a session
+
 ## 🤝 Contributing
 
 Contributions are welcome! Please follow these steps:
@@ -849,3 +852,4 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 **Built with ❤️ by the MarketSense Team**
 
 *Empowering informed investment decisions through AI-powered multi-agent analysis*
+
